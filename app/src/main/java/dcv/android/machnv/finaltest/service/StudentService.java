@@ -28,13 +28,13 @@ public class StudentService extends Service {
 
     public static final String TAG = StudentService.class.getName();
     public static final int MESSAGE_EVENT_LISTENER = 10;
-    public static final int SIZE_OF_SIGNAL_PER_MINUTE = 2;
+    public static final int SIZE_OF_SIGNAL_PER_MINUTE = 2; // 500ms/1signal --> 1 minute send 120 signal
 
     private boolean isCoreServiceConnected = false;
     private HandlerThread mHandlerThread;
     private Handler mHandlerEvent;
     private double[] arrConsumptionValue = new double[15];
-    private int count = 0;
+    private int numberSignal = 0;
     private double currentConsumptionValue = 0;
 
     private ICoreService mICoreService;
@@ -80,13 +80,6 @@ public class StudentService extends Service {
         };
     }
 
-    private void bindToCoreService() {
-        Intent intent = new Intent();
-        intent.setAction("dcv.finaltest.BIND");
-        intent.setPackage("dcv.test.servicecore");
-        bindService(intent, mServiceConnectionToCoreService, Context.BIND_AUTO_CREATE);
-    }
-
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
@@ -99,6 +92,13 @@ public class StudentService extends Service {
         if (isCoreServiceConnected) {
             unbindService(mServiceConnectionToCoreService);
         }
+    }
+
+    private void bindToCoreService() {
+        Intent intent = new Intent();
+        intent.setAction("dcv.finaltest.BIND");
+        intent.setPackage("dcv.test.servicecore");
+        bindService(intent, mServiceConnectionToCoreService, Context.BIND_AUTO_CREATE);
     }
 
     private IStudentInterface.Stub mBinder = new IStudentInterface.Stub() {
@@ -203,28 +203,29 @@ public class StudentService extends Service {
 
                             //Handle data on screen switch 2 state: KM_PER_L, L_PER_100KM
                             for (int i = 0; i < 15; i++) {
-                                if ((Integer) propertyEvent.getValue() == IPropertyService.KM_PER_L) {
-                                    // convert from l/100km to km/l
-                                    arrConsumptionValue[i] = arrConsumptionValue[i] * 100;
-                                } else if ((Integer) propertyEvent.getValue() == IPropertyService.L_PER_100KM) {
-                                    // convert from km/l to l/100km
-                                    arrConsumptionValue[i] = arrConsumptionValue[i] / 100;
+                                if (arrConsumptionValue[i] != 0) {
+                                    if ((Integer) propertyEvent.getValue() == IPropertyService.KM_PER_L) {
+                                        // convert from l/100km to km/l
+                                        arrConsumptionValue[i] = 100 / arrConsumptionValue[i];
+                                    } else if ((Integer) propertyEvent.getValue() == IPropertyService.L_PER_100KM) {
+                                        // convert from km/l to l/100km
+                                        arrConsumptionValue[i] = 100 / arrConsumptionValue[i];
+                                    }
                                 }
-
                             }
                             try {
                                 mIHMIListener.onConsumptionChanged(arrConsumptionValue);
                             } catch (RemoteException e) {
                                 e.printStackTrace();
                             }
-                            count = 0;
+                            numberSignal = 0;
                             currentConsumptionValue = 0;
                             break;
                         }
                         case IPropertyService.PROP_CONSUMPTION_VALUE: {
-                            count++;
+                            numberSignal++;
                             currentConsumptionValue += (double) propertyEvent.getValue();
-                            if (count == SIZE_OF_SIGNAL_PER_MINUTE) {
+                            if (numberSignal == SIZE_OF_SIGNAL_PER_MINUTE) {
                                 currentConsumptionValue = currentConsumptionValue / SIZE_OF_SIGNAL_PER_MINUTE;
                                 for (int i = 0; i < 14; i++) {
                                     arrConsumptionValue[i] = arrConsumptionValue[i + 1];
@@ -235,7 +236,7 @@ public class StudentService extends Service {
                                 } catch (RemoteException e) {
                                     e.printStackTrace();
                                 }
-                                count = 0;
+                                numberSignal = 0;
                                 currentConsumptionValue = 0;
                             }
 
@@ -244,7 +245,7 @@ public class StudentService extends Service {
                         case IPropertyService.PROP_RESET: {
                             if ((Boolean) propertyEvent.getValue()) {
                                 arrConsumptionValue = new double[15];
-                                count = 0;
+                                numberSignal = 0;
                                 currentConsumptionValue = 0;
                                 try {
                                     mIHMIListener.onConsumptionChanged(arrConsumptionValue);
