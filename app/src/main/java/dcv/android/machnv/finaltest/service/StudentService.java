@@ -27,7 +27,8 @@ import dcv.test.testhmiapplication.IStudentInterface;
 public class StudentService extends Service {
 
     public static final String TAG = StudentService.class.getName();
-    public static final int MESSAGE_EVENT_LISTENER = 10;
+    public static final int MESSAGE_EVENT_REGISTER_LISTENER = 10;
+    public static final int MESSAGE_EVENT_UNREGISTER_LISTENER = 11;
     public static final int SIZE_OF_SIGNAL_PER_MINUTE = 2; // 500ms/1signal --> 1 minute send 120 signal
 
     private boolean isCoreServiceConnected = false;
@@ -90,6 +91,7 @@ public class StudentService extends Service {
     public void onDestroy() {
         super.onDestroy();
         if (isCoreServiceConnected) {
+            unregisterProperty();
             unbindService(mServiceConnectionToCoreService);
         }
     }
@@ -161,19 +163,48 @@ public class StudentService extends Service {
         @Override
         public void onEvent(PropertyEvent event) throws RemoteException {
             Message message = Message.obtain();
-            message.what = MESSAGE_EVENT_LISTENER;
+            message.what = MESSAGE_EVENT_REGISTER_LISTENER;
             message.obj = event;
             mHandlerEvent.sendMessage(message);
         }
 
         @Override
         public void onError(int errorCode) throws RemoteException {
-            //TODO :: Khong can Handle
+            //Không cần Handle
+        }
+    };
+
+    private void unregisterProperty() {
+        if (mIPropertyService != null) {
+            try {
+                mIPropertyService.unregisterListener(IPropertyService.PROP_DISTANCE_UNIT, eventUnregister);
+                mIPropertyService.unregisterListener(IPropertyService.PROP_DISTANCE_VALUE, eventUnregister);
+                mIPropertyService.unregisterListener(IPropertyService.PROP_CONSUMPTION_UNIT, eventUnregister);
+                mIPropertyService.unregisterListener(IPropertyService.PROP_CONSUMPTION_VALUE, eventUnregister);
+                mIPropertyService.unregisterListener(IPropertyService.PROP_RESET, eventUnregister);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private IPropertyEventListener.Stub eventUnregister = new IPropertyEventListener.Stub() {
+        @Override
+        public void onEvent(PropertyEvent event) throws RemoteException {
+            Message message = Message.obtain();
+            message.what = MESSAGE_EVENT_UNREGISTER_LISTENER;
+            message.obj = event;
+            mHandlerEvent.sendMessage(message);
+        }
+
+        @Override
+        public void onError(int errorCode) throws RemoteException {
+            //Không cần Handle
         }
     };
 
     private void handlerEventFromMessage(Message msg) {
-        if (msg.what == MESSAGE_EVENT_LISTENER) {
+        if (msg.what == MESSAGE_EVENT_REGISTER_LISTENER) {
             if (mIHMIListener != null) {
                 PropertyEvent propertyEvent = (PropertyEvent) msg.obj;
                 if (propertyEvent.getStatus() == PropertyEvent.STATUS_AVAILABLE) {
@@ -265,8 +296,17 @@ public class StudentService extends Service {
                             break;
                         }
                     }
+                } else if (propertyEvent.getStatus() == PropertyEvent.STATUS_UNAVAILABLE){
+
+                    try {
+                        mIHMIListener.onError(true);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
+        } else if (msg.what == MESSAGE_EVENT_UNREGISTER_LISTENER) {
+            //Không cần Handle
         }
     }
 }
