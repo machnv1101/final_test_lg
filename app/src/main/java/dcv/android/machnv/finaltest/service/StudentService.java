@@ -29,7 +29,7 @@ public class StudentService extends Service {
     public static final String TAG = StudentService.class.getName();
     public static final int MESSAGE_EVENT_REGISTER_LISTENER = 10;
     public static final int MESSAGE_EVENT_UNREGISTER_LISTENER = 11;
-    public static final int SIZE_OF_SIGNAL_PER_MINUTE = 2; // 500ms/1signal --> 1 minute send 120 signal
+    public static final int NUMBER_OF_SIGNAL_PER_MINUTE = 120; // 500ms/1signal --> 1 minute send 120 signal
 
     private boolean isCoreServiceConnected = false;
     private HandlerThread mHandlerThread;
@@ -37,6 +37,8 @@ public class StudentService extends Service {
     private double[] arrConsumptionValue = new double[15];
     private int numberSignal = 0;
     private double currentConsumptionValue = 0;
+    private boolean isFirstUnit = true;
+    private boolean isFailedClick = false;
 
     private ICoreService mICoreService;
     private IPropertyService mIPropertyService;
@@ -92,6 +94,7 @@ public class StudentService extends Service {
         super.onDestroy();
         if (isCoreServiceConnected) {
             unregisterProperty();
+            mHandlerThread.quit();
             unbindService(mServiceConnectionToCoreService);
         }
     }
@@ -140,6 +143,7 @@ public class StudentService extends Service {
 
         @Override
         public void resetData() throws RemoteException {
+            isFailedClick = false;
             PropertyEvent propertyResetDataEvent = new PropertyEvent(IPropertyService.PROP_RESET, PropertyEvent.STATUS_AVAILABLE, true);
             mIPropertyService.setProperty(IPropertyService.PROP_RESET, propertyResetDataEvent);
         }
@@ -158,7 +162,6 @@ public class StudentService extends Service {
             }
         }
     }
-
     private IPropertyEventListener.Stub eventRegister = new IPropertyEventListener.Stub() {
         @Override
         public void onEvent(PropertyEvent event) throws RemoteException {
@@ -187,7 +190,6 @@ public class StudentService extends Service {
             }
         }
     }
-
     private IPropertyEventListener.Stub eventUnregister = new IPropertyEventListener.Stub() {
         @Override
         public void onEvent(PropertyEvent event) throws RemoteException {
@@ -218,6 +220,7 @@ public class StudentService extends Service {
                             break;
                         }
                         case IPropertyService.PROP_DISTANCE_VALUE: {
+                            if (isFailedClick) break;
                             try {
                                 mIHMIListener.onDistanceChanged((Double) propertyEvent.getValue());
                             } catch (RemoteException e) {
@@ -226,6 +229,7 @@ public class StudentService extends Service {
                             break;
                         }
                         case IPropertyService.PROP_CONSUMPTION_UNIT: {
+                            if (isFailedClick) break;
                             try {
                                 mIHMIListener.OnConsumptionUnitChanged((Integer) propertyEvent.getValue());
                             } catch (RemoteException e) {
@@ -254,10 +258,19 @@ public class StudentService extends Service {
                             break;
                         }
                         case IPropertyService.PROP_CONSUMPTION_VALUE: {
+                            if (isFailedClick) break;
+                            if (isFirstUnit) {
+                                try {
+                                    mIHMIListener.onConsumptionChanged(new double[15]);
+                                    isFirstUnit = false;
+                                } catch (RemoteException e) {
+                                    e.printStackTrace();
+                                }
+                            }
                             numberSignal++;
                             currentConsumptionValue += (double) propertyEvent.getValue();
-                            if (numberSignal == SIZE_OF_SIGNAL_PER_MINUTE) {
-                                currentConsumptionValue = currentConsumptionValue / SIZE_OF_SIGNAL_PER_MINUTE;
+                            if (numberSignal == NUMBER_OF_SIGNAL_PER_MINUTE) {
+                                currentConsumptionValue = currentConsumptionValue / NUMBER_OF_SIGNAL_PER_MINUTE;
                                 for (int i = 0; i < 14; i++) {
                                     arrConsumptionValue[i] = arrConsumptionValue[i + 1];
                                 }
@@ -270,7 +283,6 @@ public class StudentService extends Service {
                                 numberSignal = 0;
                                 currentConsumptionValue = 0;
                             }
-
                             break;
                         }
                         case IPropertyService.PROP_RESET: {
@@ -280,25 +292,21 @@ public class StudentService extends Service {
                                 currentConsumptionValue = 0;
                                 try {
                                     mIHMIListener.onConsumptionChanged(arrConsumptionValue);
-                                    mIHMIListener.onError((Boolean) propertyEvent.getValue());
+                                    mIHMIListener.onError(true);
                                     Thread.sleep(1000);
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                }
-                            } else {
-                                try {
-                                    mIHMIListener.onError((Boolean) propertyEvent.getValue());
+                                    mIHMIListener.onError(false);
                                 } catch (Exception e) {
                                     e.printStackTrace();
                                 }
                             }
-
                             break;
                         }
                     }
-                } else if (propertyEvent.getStatus() == PropertyEvent.STATUS_UNAVAILABLE){
+                } else if (propertyEvent.getStatus() == PropertyEvent.STATUS_UNAVAILABLE) {
 
+                    Log.d(TAG, "handlerEventFromMessage: " + propertyEvent.getValue());
                     try {
+                        isFailedClick = true;
                         mIHMIListener.onError(true);
                     } catch (RemoteException e) {
                         e.printStackTrace();
